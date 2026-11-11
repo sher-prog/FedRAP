@@ -45,7 +45,7 @@ if __name__ == '__main__':
     parser.add_argument('--mu', type=float, default=0.1)
     parser.add_argument('--regular', type=str, default='l1')
     parser.add_argument('--device_id', type=int, default=0)
-    parser.add_argument('--use_cuda', type=bool, default=True)
+    parser.add_argument('--use_cuda', type=bool, default=False)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--type', type=str, default='seed')
     parser.add_argument('--comment', type=str, default='default')
@@ -57,8 +57,8 @@ if __name__ == '__main__':
     # Config
     config = vars(args)
 
-    torch.cuda.set_device(config['device_id'])
-
+    if config['use_cuda']:
+        torch.cuda.set_device(config['device_id'])
     # Set random seed
     setSeed(config['seed'])
 

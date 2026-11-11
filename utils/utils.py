@@ -78,7 +78,7 @@ def datasetFilter(ratings, min_items=5):
 
     # only keep users who rated at least {self.min_items} items
     user_count = ratings.groupby('uid').size()
-    user_subset = np.in1d(ratings.uid, user_count[user_count >= min_items].index)
+    user_subset = np.isin(ratings.uid, user_count[user_count >= min_items].index)
     filter_ratings = ratings[user_subset].reset_index(drop=True)
 
     del ratings

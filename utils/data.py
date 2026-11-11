@@ -90,7 +90,7 @@ class SampleGenerator(object):
         interact_status = ratings.groupby('userId')['itemId'].apply(set).reset_index().rename(
             columns={'itemId': 'interacted_items'})
         interact_status['negative_items'] = interact_status['interacted_items'].apply(lambda x: self.item_pool - x)
-        interact_status['negative_samples'] = interact_status['negative_items'].apply(lambda x: random.sample(x, 99))
+        interact_status['negative_samples'] = interact_status['negative_items'].apply(lambda x: random.sample(sorted(x), 99))
         return interact_status[['userId', 'negative_items', 'negative_samples']]
 
     def store_all_train_data(self, num_negatives):
@@ -99,7 +99,7 @@ class SampleGenerator(object):
         train_ratings = pd.merge(self.train_ratings, self.negatives[['userId', 'negative_items']], on='userId')
 
         # include userId, itemId, rating, negative_items and negatives five columns.
-        train_ratings['negatives'] = train_ratings['negative_items'].apply(lambda x: random.sample(x, num_negatives))
+        train_ratings['negatives'] = train_ratings['negative_items'].apply(lambda x: random.sample(sorted(x), num_negatives))
 
         # split train_ratings into groups according to userId.
         grouped_train_ratings = train_ratings.groupby('userId')
@@ -133,7 +133,7 @@ class SampleGenerator(object):
         """instance train loader for one training epoch"""
         users, items, ratings = [], [], []
         train_ratings = pd.merge(self.train_ratings, self.negatives[['userId', 'negative_items']], on='userId')
-        train_ratings['negatives'] = train_ratings['negative_items'].apply(lambda x: random.sample(x, num_negatives))
+        train_ratings['negatives'] = train_ratings['negative_items'].apply(lambda x: random.sample(sorted(x), num_negatives))
         for row in train_ratings.itertuples():
             users.append(int(row.userId))
             items.append(int(row.itemId))
