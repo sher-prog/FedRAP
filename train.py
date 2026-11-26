@@ -9,6 +9,7 @@ import requests
 import torch
 
 from utils.data import SampleGenerator
+from utils.paper2_data import Paper2Data, Paper2SampleGenerator
 from utils.utils import setSeed, initLogging, loadData
 
 
@@ -51,8 +52,14 @@ if __name__ == '__main__':
     parser.add_argument('--comment', type=str, default='default')
     parser.add_argument('--on_server', type=bool, default=False)
     parser.add_argument('--vary_param', type=str, default='tanh')
+    parser.add_argument('--paper2_eps', type=str, default=None, choices=['nodp', '1', '0.1'])
+    parser.add_argument('--paper2_dir', type=str, default=None)
+
 
     args = parser.parse_args()
+    if args.paper2_eps is not None and args.paper2_dir is None:
+        parser.error('--paper2_dir is required when --paper2_eps is set')
+
 
     # Config
     config = vars(args)
@@ -67,6 +74,7 @@ if __name__ == '__main__':
 
     # Logging.
     path = 'logs/'
+
     current_time = datetime.datetime.now().strftime('%Y-%m-%d %H-%M-%S')
     log_file_name = os.path.join(path,
                                  '[{}]-[{}.{}]-[{}].txt'.format(config['alias'], config['dataset'],
@@ -74,7 +82,19 @@ if __name__ == '__main__':
     initLogging(log_file_name)
 
     # Load Data
-    ratings, config['num_users'], config['num_items'] = loadData('../datasets', config['dataset'], config['data_file'])
+    if config['paper2_eps'] is None:
+        ratings, config['num_users'], config['num_items'] = loadData('../datasets', config['dataset'], config['data_file'])
+    else:
+        paper2_data = Paper2Data(config['paper2_dir'], config['paper2_eps'])
+        config['num_users'] = paper2_data.num_users
+        config['num_items'] = paper2_data.num_items
+
+    if config['paper2_eps'] is None:
+        sample_generator = SampleGenerator(ratings=ratings)
+        validate_data = sample_generator.validate_data
+        test_data = sample_generator.test_data
+    else:
+        sample_generator = Paper2SampleGenerator(paper2_data)
 
     # create folder to save checkpoints
     checkpoint_path = 'results/checkpoints/{}/{}/'.format(config['alias'], config['dataset'])
@@ -85,11 +105,7 @@ if __name__ == '__main__':
 
     logging.info(str(config))
 
-    # DataLoader for training
-    sample_generator = SampleGenerator(ratings=ratings)
-    validate_data = sample_generator.validate_data
-    test_data = sample_generator.test_data
-
+    # DataLoader for training    
     # Initialize for training
     test_hrs, test_ndcgs, val_hrs, val_ndcgs, train_losses = [], [], [], [], []
     best_test_hr, final_test_round = 0, 0
@@ -113,6 +129,7 @@ if __name__ == '__main__':
         # 1. Train Phase
         start_time = time.perf_counter()
         train_loss, sparse_value = engine.federatedTrainOneRound(train_data, item_commonality, iteration)
+
         end_time = time.perf_counter()
 
         times.append((end_time - start_time))
@@ -130,32 +147,36 @@ if __name__ == '__main__':
             '[Epoch {}/{}][Train] Loss = {:.4f}, Sparsity = {:.4f}'.format(iteration + 1, config['num_round'], loss,
                                                                            sparse_value))
 
-        # 2. Evaluations on Test set
-        hr, ndcg = engine.federatedEvaluate(test_data)
 
-        logging.info(
-            '[Epoch {}/{}][Test] HR@{} = {:.4f}, NDCG@{} = {:.4f}'.format(iteration + 1, config['num_round'],
-                                                                          config['top_k'], hr, config['top_k'], ndcg))
 
-        test_hrs.append(hr)
-        test_ndcgs.append(ndcg)
+        if config['paper2_eps'] is None:
+            # 2. Evaluations on Test set
+            hr, ndcg = engine.federatedEvaluate(test_data)
 
-        # Choose the model has the best performances
-        if hr >= best_test_hr:
-            best_test_hr = hr
-            final_test_round = iteration
+            logging.info(
+                '[Epoch {}/{}][Test] HR@{} = {:.4f}, NDCG@{} = {:.4f}'.format(iteration + 1, config['num_round'],
+                                                                              config['top_k'], hr, config['top_k'], ndcg))
 
-        # 3. Evaluations on Validation set
-        val_hr, val_ndcg = engine.federatedEvaluate(validate_data)
+            test_hrs.append(hr)
+            test_ndcgs.append(ndcg)
 
-        logging.info(
-            '[Epoch {}/{}][Validation] HR@{} = {:.4f}, NDCG@{} = {:.4f}'.format(iteration + 1, config['num_round'],
-                                                                                config['top_k'], val_hr,
-                                                                                config['top_k'],
-                                                                                val_ndcg))
+            # Choose the model has the best performances
+            if hr >= best_test_hr:
+                best_test_hr = hr
+                final_test_round = iteration
 
-        val_hrs.append(val_hr)
-        val_ndcgs.append(val_ndcg)
+            # 3. Evaluations on Validation set
+            val_hr, val_ndcg = engine.federatedEvaluate(validate_data)
+
+            logging.info(
+                '[Epoch {}/{}][Validation] HR@{} = {:.4f}, NDCG@{} = {:.4f}'.format(iteration + 1, config['num_round'],
+                                                                                    config['top_k'], val_hr,
+                                                                                    config['top_k'],
+                                                                                    val_ndcg))
+
+            val_hrs.append(val_hr)
+            val_ndcgs.append(val_ndcg)
+
 
     logging.info('--------------- The model training is finished ---------------')
 
@@ -176,8 +197,13 @@ if __name__ == '__main__':
 
     # add some useful key-value
     content['finish_time'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    content['hr'] = val_hrs[final_test_round]
-    content['ndcg'] = val_ndcgs[final_test_round]
+    if config['paper2_eps'] is None:
+        content['hr'] = val_hrs[final_test_round]
+        content['ndcg'] = val_ndcgs[final_test_round]
+    else:
+        content['hr'] = float('nan')
+        content['ndcg'] = float('nan')
+
 
     # save useful data
     save_path = 'results/{}/{}/{}'.format(content['alias'], content['dataset'], content['type'])
@@ -202,7 +228,11 @@ if __name__ == '__main__':
     logging.info('hit_list: {}'.format(test_hrs))
     logging.info('ndcg_list: {}'.format(test_ndcgs))
 
-    notice = 'Best test hr: {:.4f}, ndcg: {:.4f} at round {}'.format(test_hrs[final_test_round],
-                                                                     test_ndcgs[final_test_round], final_test_round)
+    if config['paper2_eps'] is None:
+        notice = 'Best test hr: {:.4f}, ndcg: {:.4f} at round {}'.format(test_hrs[final_test_round],
+                                                                         test_ndcgs[final_test_round], final_test_round)
+    else:
+        notice = 'Paper2 mode (eps={}): built-in HR/NDCG skipped'.format(config['paper2_eps'])
 
     logging.info(notice)
+

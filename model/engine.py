@@ -104,6 +104,10 @@ class Engine(object):
 
         # perform model update for each participated user.
         for user in participants:
+            # users with an empty training list have nothing to train on
+            if len(train_data[0][user]) == 0:
+                continue
+
             loss = 0
 
             # for the first round, client models copy initialized parameters directly.
