@@ -107,7 +107,7 @@ if __name__ == '__main__':
 
     # DataLoader for training    
     # Initialize for training
-    test_hrs, test_ndcgs, val_hrs, val_ndcgs, train_losses = [], [], [], [], []
+    test_hrs, test_ndcgs, val_hrs, val_ndcgs, train_losses, val_recalls = [], [], [], [], [], []
     best_test_hr, final_test_round = 0, 0
     sparsity = []
 
@@ -177,6 +177,17 @@ if __name__ == '__main__':
             val_hrs.append(val_hr)
             val_ndcgs.append(val_ndcg)
 
+        else:
+            hr, ndcg, recall = engine.federatedEvaluateFull(
+                paper2_data.train_items, paper2_data.val_items, config['top_k'])
+            logging.info('[Epoch {}/{}][Val] HR@{} = {:.4f}, NDCG@{} = {:.4f}, Recall@{} = {:.4f}'.format(
+                iteration + 1, config['num_round'], config['top_k'], hr,
+                config['top_k'], ndcg, config['top_k'], recall))
+            val_hrs.append(hr)
+            val_ndcgs.append(ndcg)
+            val_recalls.append(recall)
+
+
 
     logging.info('--------------- The model training is finished ---------------')
 
@@ -201,8 +212,9 @@ if __name__ == '__main__':
         content['hr'] = val_hrs[final_test_round]
         content['ndcg'] = val_ndcgs[final_test_round]
     else:
-        content['hr'] = float('nan')
-        content['ndcg'] = float('nan')
+        content['hr'] = val_hrs[-1]
+        content['ndcg'] = val_ndcgs[-1]
+        content['recall'] = val_recalls[-1]
 
 
     # save useful data
@@ -223,7 +235,7 @@ if __name__ == '__main__':
                                                                                    content['comment'])
 
     np.savez(data_file, test_hrs=test_hrs, test_ndcgs=test_ndcgs, val_hrs=val_hrs, val_ndcgs=val_ndcgs,
-             train_losses=train_losses, sparsity=sparsity)
+         val_recalls=val_recalls, train_losses=train_losses, sparsity=sparsity)
 
     logging.info('hit_list: {}'.format(test_hrs))
     logging.info('ndcg_list: {}'.format(test_ndcgs))
@@ -232,7 +244,9 @@ if __name__ == '__main__':
         notice = 'Best test hr: {:.4f}, ndcg: {:.4f} at round {}'.format(test_hrs[final_test_round],
                                                                          test_ndcgs[final_test_round], final_test_round)
     else:
-        notice = 'Paper2 mode (eps={}): built-in HR/NDCG skipped'.format(config['paper2_eps'])
+        notice = 'Paper2 mode (eps={}): final-round val HR@{} = {:.4f}, NDCG@{} = {:.4f}, Recall@{} = {:.4f}'.format(
+            config['paper2_eps'], config['top_k'], val_hrs[-1], config['top_k'], val_ndcgs[-1],
+            config['top_k'], val_recalls[-1])
 
     logging.info(notice)
 

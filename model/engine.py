@@ -264,3 +264,73 @@ class Engine(object):
         hr, ndcg = self._metron.cal_hit_ratio(), self._metron.cal_ndcg()
 
         return hr, ndcg
+
+    @torch.no_grad()
+    def federatedEvaluateFull(self, train_items, val_items, top_k):
+        """Full-ranking HR / NDCG / Recall @ top_k on held-out items.
+        train_items / val_items: {user_index: set(item_index)}."""
+        commonality = self.server_model_param['item_commonality.weight'].data.cpu()
+        default = self.model.state_dict()
+        discounts = 1.0 / torch.log2(torch.arange(2, top_k + 2, dtype=torch.float))
+
+        hr_sum = ndcg_sum = recall_sum = 0.0
+        n_users = 0
+        for user, val in val_items.items():
+            if len(val) == 0:
+                continue
+            params = self.client_model_params.get(user, default)
+            personality = params['item_personality.weight'].data.cpu()
+            w = params['affine_output.weight'].data.cpu()
+            b = params['affine_output.bias'].data.cpu()
+            # sigmoid is monotonic, so ranking by the logit is enough
+            scores = ((personality + commonality) @ w.t() + b).view(-1)
+            if train_items[user]:
+                scores[list(train_items[user])] = float('-inf')
+
+            top = torch.topk(scores, top_k).indices.tolist()
+            hit = torch.tensor([1.0 if i in val else 0.0 for i in top])
+            n_hits = hit.sum().item()
+
+            hr_sum += 1.0 if n_hits > 0 else 0.0
+            recall_sum += n_hits / len(val)
+            dcg = (hit * discounts).sum().item()
+            idcg = discounts[:min(len(val), top_k)].sum().item()
+            ndcg_sum += dcg / idcg
+            n_users += 1
+
+        return hr_sum / n_users, ndcg_sum / n_users, recall_sum / n_users
+    
+    @torch.no_grad()
+    def federatedEvaluateFull(self, train_items, val_items, top_k):
+        """Full-ranking HR / NDCG / Recall @ top_k on held-out items.
+        train_items / val_items: {user_index: set(item_index)}."""
+        commonality = self.server_model_param['item_commonality.weight'].data.cpu()
+        default = self.model.state_dict()
+        discounts = 1.0 / torch.log2(torch.arange(2, top_k + 2, dtype=torch.float))
+
+        hr_sum = ndcg_sum = recall_sum = 0.0
+        n_users = 0
+        for user, val in val_items.items():
+            if len(val) == 0:
+                continue
+            params = self.client_model_params.get(user, default)
+            personality = params['item_personality.weight'].data.cpu()
+            w = params['affine_output.weight'].data.cpu()
+            b = params['affine_output.bias'].data.cpu()
+            # sigmoid is monotonic, so ranking by the logit is enough
+            scores = ((personality + commonality) @ w.t() + b).view(-1)
+            if train_items[user]:
+                scores[list(train_items[user])] = float('-inf')
+
+            top = torch.topk(scores, top_k).indices.tolist()
+            hit = torch.tensor([1.0 if i in val else 0.0 for i in top])
+            n_hits = hit.sum().item()
+
+            hr_sum += 1.0 if n_hits > 0 else 0.0
+            recall_sum += n_hits / len(val)
+            dcg = (hit * discounts).sum().item()
+            idcg = discounts[:min(len(val), top_k)].sum().item()
+            ndcg_sum += dcg / idcg
+            n_users += 1
+
+        return hr_sum / n_users, ndcg_sum / n_users, recall_sum / n_users
